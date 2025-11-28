@@ -41,9 +41,10 @@ server.tool(
       done: ThreadStatus.Done,
     };
 
+    const threadStatus = statusMap[status] ?? ThreadStatus.Todo;
     const result = await plain.getThreads({
       filters: {
-        statuses: [statusMap[status]],
+        statuses: [threadStatus],
       },
       first: limit,
     });
@@ -55,7 +56,7 @@ server.tool(
       };
     }
 
-    const threads = result.data.threads.map((thread) => ({
+    const threads = result.data.threads.map((thread: any) => ({
       id: thread.id,
       title: thread.title || "(no title)",
       status: thread.status,
@@ -101,10 +102,99 @@ server.tool(
       };
     }
 
-    const thread = threadResult.data;
+    const thread = threadResult.data as any;
+    const customerId = thread.customer?.id;
 
-    // Note: Timeline requires a separate GraphQL query - the SDK doesn't have a dedicated method
-    // We'll return what we have from the thread for now
+    // Fetch timeline entries using rawRequest
+    let timelineEntries: any[] = [];
+    if (customerId) {
+      const timelineQuery = `
+        query TimelineEntries($customerId: ID!, $first: Int) {
+          timelineEntries(customerId: $customerId, first: $first) {
+            edges {
+              node {
+                id
+                timestamp
+                actor {
+                  ... on UserActor {
+                    __typename
+                    user { fullName email }
+                  }
+                  ... on CustomerActor {
+                    __typename
+                    customer { fullName email { email } }
+                  }
+                  ... on SystemActor {
+                    __typename
+                    systemActorType
+                  }
+                  ... on MachineUserActor {
+                    __typename
+                    machineUser { fullName }
+                  }
+                }
+                entry {
+                  ... on ChatEntry {
+                    __typename
+                    chatId
+                    text
+                  }
+                  ... on EmailEntry {
+                    __typename
+                    emailId
+                    subject
+                    textContent
+                    from { email name }
+                    to { email name }
+                  }
+                  ... on NoteEntry {
+                    __typename
+                    noteId
+                    text
+                  }
+                  ... on CustomTimelineEntry {
+                    __typename
+                    title
+                    components {
+                      ... on ComponentText {
+                        __typename
+                        text
+                      }
+                    }
+                  }
+                }
+                threadId
+              }
+            }
+          }
+        }
+      `;
+
+      const timelineResult = await plain.rawRequest({
+        query: timelineQuery,
+        variables: { customerId, first: 50 },
+      });
+
+      const data = timelineResult.data as any;
+      if (!timelineResult.error && data?.timelineEntries?.edges) {
+        // Filter to only entries for this thread
+        timelineEntries = data.timelineEntries.edges
+          .map((edge: any) => edge.node)
+          .filter((entry: any) => entry.threadId === thread_id)
+          .map((entry: any) => {
+            const actorName = getActorName(entry.actor);
+            const content = getEntryContent(entry.entry);
+            return {
+              id: entry.id,
+              timestamp: entry.timestamp,
+              actor: actorName,
+              type: entry.entry?.__typename || "Unknown",
+              content,
+            };
+          });
+      }
+    }
+
     const response = {
       id: thread.id,
       title: thread.title || "(no title)",
@@ -120,9 +210,10 @@ server.tool(
         id: thread.assignee.id,
         name: thread.assignee.fullName,
       } : null,
-      labels: thread.labels?.map((l) => l.labelType.name) || [],
+      labels: thread.labels?.map((l: any) => l.labelType.name) || [],
       createdAt: thread.createdAt.iso8601,
       updatedAt: thread.updatedAt.iso8601,
+      timeline: timelineEntries,
     };
 
     return {
@@ -135,6 +226,46 @@ server.tool(
     };
   }
 );
+
+// Helper function to extract actor name
+function getActorName(actor: any): string {
+  if (!actor) return "Unknown";
+  switch (actor.__typename) {
+    case "UserActor":
+      return actor.user?.fullName || actor.user?.email || "Support Agent";
+    case "CustomerActor":
+      return actor.customer?.fullName || actor.customer?.email?.email || "Customer";
+    case "SystemActor":
+      return `System (${actor.systemActorType || "auto"})`;
+    case "MachineUserActor":
+      return actor.machineUser?.fullName || "Bot";
+    default:
+      return "Unknown";
+  }
+}
+
+// Helper function to extract entry content
+function getEntryContent(entry: any): string {
+  if (!entry) return "";
+  switch (entry.__typename) {
+    case "ChatEntry":
+      return entry.text || "";
+    case "EmailEntry":
+      return entry.textContent || entry.subject || "";
+    case "NoteEntry":
+      return entry.text || "";
+    case "CustomTimelineEntry":
+      if (entry.components?.length > 0) {
+        return entry.components
+          .filter((c: any) => c.__typename === "ComponentText")
+          .map((c: any) => c.text)
+          .join("\n");
+      }
+      return entry.title || "";
+    default:
+      return "";
+  }
+}
 
 // Tool: search_customers
 server.tool(
