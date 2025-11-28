@@ -56,15 +56,32 @@ server.tool(
       };
     }
 
-    const threads = result.data.threads.map((thread: any) => ({
-      id: thread.id,
-      title: thread.title || "(no title)",
-      status: thread.status,
-      priority: thread.priority,
-      customer: thread.customer?.fullName || thread.customer?.email?.email || "Unknown",
-      createdAt: thread.createdAt.iso8601,
-      updatedAt: thread.updatedAt.iso8601,
-    }));
+    // Fetch customer details for each thread (thread only contains customer ID)
+    const threads = await Promise.all(
+      result.data.threads.map(async (thread: any) => {
+        let customerName = "Unknown";
+        if (thread.customer?.id) {
+          const customerResult = await plain.getCustomerById({
+            customerId: thread.customer.id,
+          });
+          if (!customerResult.error && customerResult.data) {
+            customerName =
+              customerResult.data.fullName ||
+              customerResult.data.email?.email ||
+              "Unknown";
+          }
+        }
+        return {
+          id: thread.id,
+          title: thread.title || "(no title)",
+          status: thread.status,
+          priority: thread.priority,
+          customer: customerName,
+          createdAt: thread.createdAt.iso8601,
+          updatedAt: thread.updatedAt.iso8601,
+        };
+      })
+    );
 
     return {
       content: [
@@ -105,6 +122,21 @@ server.tool(
     const thread = threadResult.data as any;
     const customerId = thread.customer?.id;
 
+    // Fetch full customer details separately (thread only contains customer ID)
+    let customerDetails: { id: string; name?: string; email?: string } = {
+      id: customerId,
+    };
+    if (customerId) {
+      const customerResult = await plain.getCustomerById({ customerId });
+      if (!customerResult.error && customerResult.data) {
+        customerDetails = {
+          id: customerId,
+          name: customerResult.data.fullName,
+          email: customerResult.data.email?.email,
+        };
+      }
+    }
+
     // Fetch timeline entries using rawRequest
     let timelineEntries: any[] = [];
     if (customerId) {
@@ -114,7 +146,7 @@ server.tool(
             edges {
               node {
                 id
-                timestamp
+                timestamp { iso8601 }
                 actor {
                   ... on UserActor {
                     __typename
@@ -126,7 +158,6 @@ server.tool(
                   }
                   ... on SystemActor {
                     __typename
-                    systemActorType
                   }
                   ... on MachineUserActor {
                     __typename
@@ -137,7 +168,7 @@ server.tool(
                   ... on ChatEntry {
                     __typename
                     chatId
-                    text
+                    chatText: text
                   }
                   ... on EmailEntry {
                     __typename
@@ -150,15 +181,15 @@ server.tool(
                   ... on NoteEntry {
                     __typename
                     noteId
-                    text
+                    noteText: text
                   }
-                  ... on CustomTimelineEntry {
+                  ... on CustomEntry {
                     __typename
                     title
                     components {
                       ... on ComponentText {
                         __typename
-                        text
+                        componentText: text
                       }
                     }
                   }
@@ -175,8 +206,14 @@ server.tool(
         variables: { customerId, first: 50 },
       });
 
+      if (timelineResult.error) {
+        console.error("Timeline query error:", timelineResult.error);
+      }
       const data = timelineResult.data as any;
-      if (!timelineResult.error && data?.timelineEntries?.edges) {
+      if (!data?.timelineEntries?.edges) {
+        console.error("No timeline edges found. Response data:", JSON.stringify(data, null, 2));
+      }
+      if (data?.timelineEntries?.edges) {
         // Filter to only entries for this thread
         timelineEntries = data.timelineEntries.edges
           .map((edge: any) => edge.node)
@@ -186,7 +223,7 @@ server.tool(
             const content = getEntryContent(entry.entry);
             return {
               id: entry.id,
-              timestamp: entry.timestamp,
+              timestamp: entry.timestamp?.iso8601,
               actor: actorName,
               type: entry.entry?.__typename || "Unknown",
               content,
@@ -201,11 +238,7 @@ server.tool(
       description: thread.description,
       status: thread.status,
       priority: thread.priority,
-      customer: {
-        id: thread.customer?.id,
-        name: thread.customer?.fullName,
-        email: thread.customer?.email?.email,
-      },
+      customer: customerDetails,
       assignee: thread.assignee ? {
         id: thread.assignee.id,
         name: thread.assignee.fullName,
@@ -249,16 +282,16 @@ function getEntryContent(entry: any): string {
   if (!entry) return "";
   switch (entry.__typename) {
     case "ChatEntry":
-      return entry.text || "";
+      return entry.chatText || "";
     case "EmailEntry":
       return entry.textContent || entry.subject || "";
     case "NoteEntry":
-      return entry.text || "";
-    case "CustomTimelineEntry":
+      return entry.noteText || "";
+    case "CustomEntry":
       if (entry.components?.length > 0) {
         return entry.components
           .filter((c: any) => c.__typename === "ComponentText")
-          .map((c: any) => c.text)
+          .map((c: any) => c.componentText)
           .join("\n");
       }
       return entry.title || "";

@@ -5,7 +5,9 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "bun run src/index.ts"
+    "start": "bun run src/index.ts",
+    "test": "bun run src/test.ts",
+    "inspect": "npx @anthropic-ai/inspector bun run src/index.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
