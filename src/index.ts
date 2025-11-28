@@ -381,6 +381,179 @@ server.tool(
   }
 );
 
+// Tool: reply_to_thread
+server.tool(
+  "reply_to_thread",
+  "Reply to a support thread. The reply will be sent to the customer via the original channel (email, chat, etc.)",
+  {
+    thread_id: z.string().describe("The thread ID to reply to"),
+    text: z.string().describe("The plain text content of the reply"),
+    markdown: z
+      .string()
+      .optional()
+      .describe("Optional markdown-formatted content (will be used for rich display if supported)"),
+  },
+  async ({ thread_id, text, markdown }) => {
+    const result = await plain.replyToThread({
+      threadId: thread_id,
+      textContent: text,
+      markdownContent: markdown,
+    });
+
+    if (result.error) {
+      return {
+        content: [{ type: "text", text: `Error: ${result.error.message}` }],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Reply sent successfully to thread ${thread_id}`,
+        },
+      ],
+    };
+  }
+);
+
+// Tool: mark_thread_done
+server.tool(
+  "mark_thread_done",
+  "Mark a support thread as done/resolved",
+  {
+    thread_id: z.string().describe("The thread ID to mark as done"),
+  },
+  async ({ thread_id }) => {
+    const result = await plain.markThreadAsDone({
+      threadId: thread_id,
+    });
+
+    if (result.error) {
+      return {
+        content: [{ type: "text", text: `Error: ${result.error.message}` }],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Thread ${thread_id} marked as done`,
+        },
+      ],
+    };
+  }
+);
+
+// Tool: mark_thread_todo
+server.tool(
+  "mark_thread_todo",
+  "Mark a support thread as todo (re-open it)",
+  {
+    thread_id: z.string().describe("The thread ID to mark as todo"),
+  },
+  async ({ thread_id }) => {
+    const result = await plain.markThreadAsTodo({
+      threadId: thread_id,
+    });
+
+    if (result.error) {
+      return {
+        content: [{ type: "text", text: `Error: ${result.error.message}` }],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Thread ${thread_id} marked as todo`,
+        },
+      ],
+    };
+  }
+);
+
+// Tool: snooze_thread
+server.tool(
+  "snooze_thread",
+  "Snooze a support thread for a specified duration",
+  {
+    thread_id: z.string().describe("The thread ID to snooze"),
+    duration_seconds: z
+      .number()
+      .min(60)
+      .max(2592000) // max 30 days
+      .describe("Duration to snooze in seconds (e.g., 86400 for 1 day)"),
+  },
+  async ({ thread_id, duration_seconds }) => {
+    const result = await plain.snoozeThread({
+      threadId: thread_id,
+      durationSeconds: duration_seconds,
+    });
+
+    if (result.error) {
+      return {
+        content: [{ type: "text", text: `Error: ${result.error.message}` }],
+        isError: true,
+      };
+    }
+
+    const hours = Math.round(duration_seconds / 3600);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Thread ${thread_id} snoozed for ${hours} hour(s)`,
+        },
+      ],
+    };
+  }
+);
+
+// Tool: create_note
+server.tool(
+  "create_note",
+  "Create an internal note on a thread (not visible to customer)",
+  {
+    thread_id: z.string().describe("The thread ID to add the note to"),
+    customer_id: z.string().describe("The customer ID associated with the thread"),
+    text: z.string().describe("The plain text content of the note"),
+    markdown: z
+      .string()
+      .optional()
+      .describe("Optional markdown-formatted content for rich display"),
+  },
+  async ({ thread_id, customer_id, text, markdown }) => {
+    const result = await plain.createNote({
+      threadId: thread_id,
+      customerId: customer_id,
+      text: text,
+      markdown: markdown,
+    });
+
+    if (result.error) {
+      return {
+        content: [{ type: "text", text: `Error: ${result.error.message}` }],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Note created successfully on thread ${thread_id}`,
+        },
+      ],
+    };
+  }
+);
+
 // Start server
 async function main() {
   const transport = new StdioServerTransport();
