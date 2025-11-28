@@ -3411,6 +3411,71 @@ server.tool(
   }
 );
 
+// Tool: link_thread_to_linear
+server.tool(
+  "link_thread_to_linear",
+  "Link a Plain support thread to a Linear issue for tracking",
+  {
+    thread_id: z.string().describe("The Plain thread ID to link"),
+    linear_issue_id: z.string().describe("The Linear issue ID (e.g., 'TEL-123' or the UUID)"),
+    linear_issue_url: z.string().describe("The full Linear issue URL (e.g., 'https://linear.app/tella/issue/TEL-123')"),
+  },
+  async ({ thread_id, linear_issue_id, linear_issue_url }) => {
+    const mutation = `
+      mutation CreateThreadLink($input: CreateThreadLinkInput!) {
+        createThreadLink(input: $input) {
+          error {
+            message
+            type
+            code
+          }
+          threadLink {
+            id
+            createdAt { iso8601 }
+          }
+        }
+      }
+    `;
+
+    const result = await plain.rawRequest({
+      query: mutation,
+      variables: {
+        input: {
+          threadId: thread_id,
+          linearIssue: {
+            linearIssueId: linear_issue_id,
+            linearIssueUrl: linear_issue_url,
+          },
+        },
+      },
+    });
+
+    if (result.error) {
+      return {
+        content: [{ type: "text", text: `Error: ${result.error.message}` }],
+        isError: true,
+      };
+    }
+
+    const data = result.data as any;
+    if (data?.createThreadLink?.error) {
+      return {
+        content: [{ type: "text", text: `Error: ${data.createThreadLink.error.message}` }],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Successfully linked thread ${thread_id} to Linear issue ${linear_issue_id}`,
+        },
+      ],
+    };
+  }
+);
+
 // Start server
 async function main() {
   const transport = new StdioServerTransport();
