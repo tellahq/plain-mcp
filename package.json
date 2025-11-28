@@ -1,0 +1,21 @@
+{
+  "name": "plain-mcp",
+  "version": "1.0.0",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run src/index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.23.0",
+    "@team-plain/typescript-sdk": "^5.11.0",
+    "zod": "^4.1.13"
+  }
+}
