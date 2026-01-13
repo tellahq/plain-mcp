@@ -1,9 +1,12 @@
 {
-  "name": "plain-mcp",
+  "name": "@tellahq/plain-mcp",
   "version": "1.0.0",
+  "description": "MCP server for Plain.com support platform",
   "module": "src/index.ts",
   "type": "module",
-  "private": true,
+  "bin": {
+    "plain-mcp": "./src/index.ts"
+  },
   "scripts": {
     "start": "bun run src/index.ts",
     "test": "bun run src/test.ts",
@@ -19,5 +22,16 @@
     "@modelcontextprotocol/sdk": "^1.23.0",
     "@team-plain/typescript-sdk": "^5.11.0",
     "zod": "^4.1.13"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tellahq/plain-mcp.git"
+  },
+  "keywords": [
+    "mcp",
+    "plain",
+    "support",
+    "claude"
+  ],
+  "license": "MIT"
 }
