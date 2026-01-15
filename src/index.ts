@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { PlainClient, ThreadStatus } from "@team-plain/typescript-sdk";
+import { PlainClient, ThreadStatus, TodoStatusDetail, SnoozeStatusDetail } from "@team-plain/typescript-sdk";
 import { z } from "zod";
 
 const apiKey = process.env.PLAIN_API_KEY;
@@ -3278,47 +3278,14 @@ server.tool(
       ),
   },
   async ({ thread_id, status_detail }) => {
-    const mutation = `
-      mutation ChangeThreadStatusToTodo($input: ChangeThreadStatusToTodoInput!) {
-        changeThreadStatusToTodo(input: $input) {
-          thread { id status }
-          error { message code }
-        }
-      }
-    `;
-
-    const input: Record<string, unknown> = { threadId: thread_id };
-    if (status_detail) {
-      input.statusDetail = status_detail;
-    }
-
-    const result = await plain.rawRequest({
-      query: mutation,
-      variables: { input },
+    const result = await plain.markThreadAsTodo({
+      threadId: thread_id,
+      statusDetail: status_detail as TodoStatusDetail | undefined,
     });
 
     if (result.error) {
       return {
         content: [{ type: "text", text: `Error: ${result.error.message}` }],
-        isError: true,
-      };
-    }
-
-    const data = result.data as {
-      changeThreadStatusToTodo: {
-        thread?: { id: string; status: string };
-        error?: { message: string; code: string };
-      };
-    };
-
-    if (data?.changeThreadStatusToTodo?.error) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error: ${data.changeThreadStatusToTodo.error.message}`,
-          },
-        ],
         isError: true,
       };
     }
@@ -3354,47 +3321,15 @@ server.tool(
       ),
   },
   async ({ thread_id, duration_seconds, status_detail }) => {
-    const mutation = `
-      mutation SnoozeThread($input: SnoozeThreadInput!) {
-        snoozeThread(input: $input) {
-          thread { id status }
-          error { message code }
-        }
-      }
-    `;
-
-    const input: Record<string, unknown> = {
+    const result = await plain.snoozeThread({
       threadId: thread_id,
       durationSeconds: duration_seconds,
-    };
-    if (status_detail) {
-      input.statusDetail = status_detail;
-    }
-
-    const result = await plain.rawRequest({
-      query: mutation,
-      variables: { input },
+      statusDetail: status_detail as SnoozeStatusDetail | undefined,
     });
 
     if (result.error) {
       return {
         content: [{ type: "text", text: `Error: ${result.error.message}` }],
-        isError: true,
-      };
-    }
-
-    const data = result.data as {
-      snoozeThread: {
-        thread?: { id: string; status: string };
-        error?: { message: string; code: string };
-      };
-    };
-
-    if (data?.snoozeThread?.error) {
-      return {
-        content: [
-          { type: "text", text: `Error: ${data.snoozeThread.error.message}` },
-        ],
         isError: true,
       };
     }
