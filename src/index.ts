@@ -3258,22 +3258,43 @@ server.tool(
   }
 );
 
-// Tool: snooze_thread
+// Tool: change_thread_status_to_todo
 server.tool(
-  "snooze_thread",
-  "Snooze a support thread for a specified duration",
+  "change_thread_status_to_todo",
+  "Change thread status to Todo with optional status detail. Use this instead of mark_thread_todo when you need to set a specific status detail.",
   {
-    thread_id: z.string().describe("The thread ID to snooze"),
-    duration_seconds: z
-      .number()
-      .min(60)
-      .max(2592000) // max 30 days
-      .describe("Duration to snooze in seconds (e.g., 86400 for 1 day)"),
+    thread_id: z.string().describe("The thread ID"),
+    status_detail: z
+      .enum([
+        "CREATED",
+        "IN_PROGRESS",
+        "NEW_REPLY",
+        "THREAD_LINK_UPDATED",
+        "THREAD_DISCUSSION_RESOLVED",
+      ])
+      .optional()
+      .describe(
+        "Status detail: CREATED (Needs first response), IN_PROGRESS (Investigating), NEW_REPLY (Needs next response), THREAD_LINK_UPDATED (Close the loop), THREAD_DISCUSSION_RESOLVED (Discussion resolved)"
+      ),
   },
-  async ({ thread_id, duration_seconds }) => {
-    const result = await plain.snoozeThread({
-      threadId: thread_id,
-      durationSeconds: duration_seconds,
+  async ({ thread_id, status_detail }) => {
+    const mutation = `
+      mutation ChangeThreadStatusToTodo($input: ChangeThreadStatusToTodoInput!) {
+        changeThreadStatusToTodo(input: $input) {
+          thread { id status }
+          error { message code }
+        }
+      }
+    `;
+
+    const input: Record<string, unknown> = { threadId: thread_id };
+    if (status_detail) {
+      input.statusDetail = status_detail;
+    }
+
+    const result = await plain.rawRequest({
+      query: mutation,
+      variables: { input },
     });
 
     if (result.error) {
@@ -3283,12 +3304,108 @@ server.tool(
       };
     }
 
-    const hours = Math.round(duration_seconds / 3600);
+    const data = result.data as {
+      changeThreadStatusToTodo: {
+        thread?: { id: string; status: string };
+        error?: { message: string; code: string };
+      };
+    };
+
+    if (data?.changeThreadStatusToTodo?.error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error: ${data.changeThreadStatusToTodo.error.message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    const statusMsg = status_detail ? ` with status detail: ${status_detail}` : "";
     return {
       content: [
         {
           type: "text",
-          text: `Thread ${thread_id} snoozed for ${hours} hour(s)`,
+          text: `Thread ${thread_id} changed to Todo${statusMsg}`,
+        },
+      ],
+    };
+  }
+);
+
+// Tool: snooze_thread
+server.tool(
+  "snooze_thread",
+  "Snooze a support thread for a specified duration with optional status detail",
+  {
+    thread_id: z.string().describe("The thread ID to snooze"),
+    duration_seconds: z
+      .number()
+      .min(60)
+      .max(5184000) // max 60 days per Plain API
+      .describe("Duration to snooze in seconds (e.g., 86400 for 1 day)"),
+    status_detail: z
+      .enum(["WAITING_FOR_CUSTOMER", "WAITING_FOR_DURATION"])
+      .optional()
+      .describe(
+        "Status detail: WAITING_FOR_CUSTOMER (ball in customer's court), WAITING_FOR_DURATION (time-based snooze)"
+      ),
+  },
+  async ({ thread_id, duration_seconds, status_detail }) => {
+    const mutation = `
+      mutation SnoozeThread($input: SnoozeThreadInput!) {
+        snoozeThread(input: $input) {
+          thread { id status }
+          error { message code }
+        }
+      }
+    `;
+
+    const input: Record<string, unknown> = {
+      threadId: thread_id,
+      durationSeconds: duration_seconds,
+    };
+    if (status_detail) {
+      input.statusDetail = status_detail;
+    }
+
+    const result = await plain.rawRequest({
+      query: mutation,
+      variables: { input },
+    });
+
+    if (result.error) {
+      return {
+        content: [{ type: "text", text: `Error: ${result.error.message}` }],
+        isError: true,
+      };
+    }
+
+    const data = result.data as {
+      snoozeThread: {
+        thread?: { id: string; status: string };
+        error?: { message: string; code: string };
+      };
+    };
+
+    if (data?.snoozeThread?.error) {
+      return {
+        content: [
+          { type: "text", text: `Error: ${data.snoozeThread.error.message}` },
+        ],
+        isError: true,
+      };
+    }
+
+    const hours = Math.round(duration_seconds / 3600);
+    const statusMsg = status_detail ? ` (${status_detail})` : "";
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Thread ${thread_id} snoozed for ${hours} hour(s)${statusMsg}`,
         },
       ],
     };
