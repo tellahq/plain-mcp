@@ -3328,8 +3328,15 @@ server.tool(
     });
 
     if (result.error) {
+      let errorMsg = `Error [${result.error.code}]: ${result.error.message}`;
+      if (result.error.fields && result.error.fields.length > 0) {
+        const fieldErrors = result.error.fields
+          .map((f: { field: string; message: string }) => `${f.field}: ${f.message}`)
+          .join(", ");
+        errorMsg += ` (${fieldErrors})`;
+      }
       return {
-        content: [{ type: "text", text: `Error: ${result.error.message}` }],
+        content: [{ type: "text", text: errorMsg }],
         isError: true,
       };
     }
