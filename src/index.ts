@@ -3312,8 +3312,8 @@ server.tool(
       .number()
       .min(60)
       .max(5184000) // max 60 days per Plain API
-      .optional()
-      .describe("Duration to snooze in seconds. Required for WAITING_FOR_DURATION, must NOT be provided for WAITING_FOR_CUSTOMER."),
+      .nullish()
+      .describe("Duration to snooze in seconds. Required for WAITING_FOR_DURATION, omit for WAITING_FOR_CUSTOMER."),
     status_detail: z
       .enum(["WAITING_FOR_CUSTOMER", "WAITING_FOR_DURATION"])
       .describe(
