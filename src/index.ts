@@ -3305,32 +3305,49 @@ server.tool(
 // Tool: snooze_thread
 server.tool(
   "snooze_thread",
-  "Snooze a support thread for a specified duration with optional status detail",
+  "Snooze a support thread. Use WAITING_FOR_CUSTOMER (no duration) to snooze until customer replies, or WAITING_FOR_DURATION with duration_seconds for time-based snooze.",
   {
     thread_id: z.string().describe("The thread ID to snooze"),
     duration_seconds: z
       .number()
       .min(60)
       .max(5184000) // max 60 days per Plain API
-      .describe("Duration to snooze in seconds (e.g., 86400 for 1 day)"),
+      .optional()
+      .describe("Duration to snooze in seconds. Required for WAITING_FOR_DURATION, must NOT be provided for WAITING_FOR_CUSTOMER."),
     status_detail: z
       .enum(["WAITING_FOR_CUSTOMER", "WAITING_FOR_DURATION"])
-      .optional()
       .describe(
-        "Status detail: WAITING_FOR_CUSTOMER (ball in customer's court), WAITING_FOR_DURATION (time-based snooze)"
+        "WAITING_FOR_CUSTOMER: snooze until customer replies (no duration). WAITING_FOR_DURATION: snooze for specified duration."
       ),
   },
   async ({ thread_id, duration_seconds, status_detail }) => {
-    const result = await plain.snoozeThread({
+    // WAITING_FOR_CUSTOMER cannot have duration, WAITING_FOR_DURATION requires it
+    const snoozeInput: {
+      threadId: string;
+      statusDetail: SnoozeStatusDetail;
+      durationSeconds?: number;
+    } = {
       threadId: thread_id,
-      durationSeconds: duration_seconds,
-      statusDetail: status_detail as SnoozeStatusDetail | undefined,
-    });
+      statusDetail: status_detail as SnoozeStatusDetail,
+    };
+
+    if (status_detail === "WAITING_FOR_DURATION") {
+      if (!duration_seconds) {
+        return {
+          content: [{ type: "text", text: "Error: duration_seconds is required when using WAITING_FOR_DURATION" }],
+          isError: true,
+        };
+      }
+      snoozeInput.durationSeconds = duration_seconds;
+    }
+
+    const result = await plain.snoozeThread(snoozeInput);
 
     if (result.error) {
-      let errorMsg = `Error [${result.error.code}]: ${result.error.message}`;
-      if (result.error.fields && result.error.fields.length > 0) {
-        const fieldErrors = result.error.fields
+      const details = (result.error as any).errorDetails;
+      let errorMsg = `Error: ${result.error.message}`;
+      if (details?.fields && details.fields.length > 0) {
+        const fieldErrors = details.fields
           .map((f: { field: string; message: string }) => `${f.field}: ${f.message}`)
           .join(", ");
         errorMsg += ` (${fieldErrors})`;
@@ -3341,13 +3358,14 @@ server.tool(
       };
     }
 
-    const hours = Math.round(duration_seconds / 3600);
-    const statusMsg = status_detail ? ` (${status_detail})` : "";
+    const statusMsg = status_detail === "WAITING_FOR_CUSTOMER"
+      ? "until customer replies"
+      : `for ${Math.round((duration_seconds || 0) / 3600)} hour(s)`;
     return {
       content: [
         {
           type: "text",
-          text: `Thread ${thread_id} snoozed for ${hours} hour(s)${statusMsg}`,
+          text: `Thread ${thread_id} snoozed ${statusMsg}`,
         },
       ],
     };
