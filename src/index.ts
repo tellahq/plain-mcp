@@ -1209,39 +1209,22 @@ server.tool(
     user_id: z.string().describe("The user ID to assign to"),
   },
   async ({ thread_id, user_id }) => {
-    const mutation = `
-      mutation AssignThread($input: AssignThreadInput!) {
-        assignThread(input: $input) {
-          thread {
-            id
-            assignee {
-              id
-              fullName
-            }
-          }
-          error {
-            message
-            code
-          }
-        }
-      }
-    `;
-
-    const result = await plain.rawRequest({
-      query: mutation,
-      variables: { input: { threadId: thread_id, userId: user_id } },
+    const result = await plain.assignThread({
+      threadId: thread_id,
+      userId: user_id,
     });
 
     if (result.error) {
       return { content: [{ type: "text", text: `Error: ${result.error.message}` }], isError: true };
     }
 
-    const data = result.data as any;
-    if (data?.assignThread?.error) {
-      return { content: [{ type: "text", text: `Error: ${data.assignThread.error.message}` }], isError: true };
-    }
-
-    return { content: [{ type: "text", text: `Thread assigned to ${data?.assignThread?.thread?.assignee?.fullName}` }] };
+    const assignee = result.data?.assignedTo;
+    const assigneeName = assignee?.__typename === "User"
+      ? (assignee.fullName || assignee.publicName)
+      : assignee?.__typename === "MachineUser"
+        ? assignee.fullName
+        : "user";
+    return { content: [{ type: "text", text: `Thread assigned to ${assigneeName}` }] };
   }
 );
 
@@ -1253,32 +1236,12 @@ server.tool(
     thread_id: z.string().describe("The thread ID"),
   },
   async ({ thread_id }) => {
-    const mutation = `
-      mutation UnassignThread($input: UnassignThreadInput!) {
-        unassignThread(input: $input) {
-          thread {
-            id
-          }
-          error {
-            message
-            code
-          }
-        }
-      }
-    `;
-
-    const result = await plain.rawRequest({
-      query: mutation,
-      variables: { input: { threadId: thread_id } },
+    const result = await plain.unassignThread({
+      threadId: thread_id,
     });
 
     if (result.error) {
       return { content: [{ type: "text", text: `Error: ${result.error.message}` }], isError: true };
-    }
-
-    const data = result.data as any;
-    if (data?.unassignThread?.error) {
-      return { content: [{ type: "text", text: `Error: ${data.unassignThread.error.message}` }], isError: true };
     }
 
     return { content: [{ type: "text", text: `Thread ${thread_id} unassigned` }] };
