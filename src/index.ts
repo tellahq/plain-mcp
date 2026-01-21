@@ -37,10 +37,12 @@ server.tool(
               id
               publicName
               internalName
-              subdomain
-              customDomainName
               type
               description
+              domainSettings {
+                domainName
+                customDomainName
+              }
               createdAt { iso8601 }
               updatedAt { iso8601 }
             }
@@ -56,7 +58,11 @@ server.tool(
     }
 
     const data = result.data as any;
-    const helpCenters = data?.helpCenters?.edges?.map((e: any) => e.node) || [];
+    const helpCenters = data?.helpCenters?.edges?.map((e: any) => ({
+      ...e.node,
+      subdomain: e.node.domainSettings?.domainName,
+      customDomainName: e.node.domainSettings?.customDomainName,
+    })) || [];
 
     return { content: [{ type: "text", text: JSON.stringify(helpCenters, null, 2) }] };
   }
@@ -76,10 +82,12 @@ server.tool(
           id
           publicName
           internalName
-          subdomain
-          customDomainName
           type
           description
+          domainSettings {
+            domainName
+            customDomainName
+          }
           createdAt { iso8601 }
           updatedAt { iso8601 }
         }
@@ -92,7 +100,13 @@ server.tool(
       return { content: [{ type: "text", text: `Error: ${result.error.message}` }], isError: true };
     }
 
-    return { content: [{ type: "text", text: JSON.stringify((result.data as any)?.helpCenter, null, 2) }] };
+    const hc = (result.data as any)?.helpCenter;
+    if (hc) {
+      hc.subdomain = hc.domainSettings?.domainName;
+      hc.customDomainName = hc.domainSettings?.customDomainName;
+    }
+
+    return { content: [{ type: "text", text: JSON.stringify(hc, null, 2) }] };
   }
 );
 
@@ -435,16 +449,17 @@ server.tool(
     help_center_id: z.string().describe("The help center ID"),
     title: z.string().describe("Article title"),
     content_html: z.string().describe("Article content in HTML format"),
+    description: z.string().describe("Article description/summary (required)"),
     slug: z.string().optional().describe("URL-friendly slug (auto-generated if not provided)"),
     status: z.enum(["DRAFT", "PUBLISHED"]).optional().default("DRAFT").describe("Article status"),
     article_id: z.string().optional().describe("Article ID to update (omit to create new)"),
     group_id: z.string().optional().describe("Article group ID to place article in"),
   },
-  async ({ help_center_id, title, content_html, slug, status, article_id, group_id }) => {
+  async ({ help_center_id, title, content_html, description, slug, status, article_id, group_id }) => {
     const mutation = `
       mutation UpsertHelpCenterArticle($input: UpsertHelpCenterArticleInput!) {
         upsertHelpCenterArticle(input: $input) {
-          article {
+          helpCenterArticle {
             id
             title
             slug
@@ -453,6 +468,7 @@ server.tool(
           error {
             message
             code
+            fields { field message }
           }
         }
       }
@@ -462,11 +478,12 @@ server.tool(
       helpCenterId: help_center_id,
       title,
       contentHtml: content_html,
+      description,
       status,
     };
     if (slug) input.slug = slug;
-    if (article_id) input.articleId = article_id;
-    if (group_id) input.groupId = group_id;
+    if (article_id) input.helpCenterArticleId = article_id;
+    if (group_id) input.helpCenterArticleGroupId = group_id;
 
     const result = await plain.rawRequest({ query: mutation, variables: { input } });
 
@@ -476,10 +493,11 @@ server.tool(
 
     const data = result.data as any;
     if (data?.upsertHelpCenterArticle?.error) {
-      return { content: [{ type: "text", text: `Error: ${data.upsertHelpCenterArticle.error.message}` }], isError: true };
+      const err = data.upsertHelpCenterArticle.error;
+      return { content: [{ type: "text", text: `Error: ${err.message} (${JSON.stringify(err.fields)})` }], isError: true };
     }
 
-    return { content: [{ type: "text", text: JSON.stringify(data?.upsertHelpCenterArticle?.article, null, 2) }] };
+    return { content: [{ type: "text", text: JSON.stringify(data?.upsertHelpCenterArticle?.helpCenterArticle, null, 2) }] };
   }
 );
 
@@ -532,7 +550,7 @@ server.tool(
     const mutation = `
       mutation GenerateHelpCenterArticle($input: GenerateHelpCenterArticleInput!) {
         generateHelpCenterArticle(input: $input) {
-          article {
+          helpCenterArticles {
             id
             title
             slug
@@ -560,7 +578,7 @@ server.tool(
       return { content: [{ type: "text", text: `Error: ${data.generateHelpCenterArticle.error.message}` }], isError: true };
     }
 
-    return { content: [{ type: "text", text: JSON.stringify(data?.generateHelpCenterArticle?.article, null, 2) }] };
+    return { content: [{ type: "text", text: JSON.stringify(data?.generateHelpCenterArticle?.helpCenterArticles, null, 2) }] };
   }
 );
 
