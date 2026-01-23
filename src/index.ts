@@ -2780,7 +2780,7 @@ server.tool(
 // Tool: list_threads
 server.tool(
   "list_threads",
-  "List support threads with optional status filter",
+  "List support threads with optional filters. Note: statusDetail (CREATED, NEW_REPLY, etc.) is not available in list results - use get_thread for that.",
   {
     status: z
       .enum(["todo", "snoozed", "done"])
@@ -2794,8 +2794,20 @@ server.tool(
       .optional()
       .default(25)
       .describe("Number of threads to return"),
+    priorities: z
+      .array(z.number().min(0).max(3))
+      .optional()
+      .describe("Filter by priority levels (0=urgent, 1=high, 2=normal, 3=low)"),
+    is_assigned: z
+      .boolean()
+      .optional()
+      .describe("Filter by assignment status (true=assigned, false=unassigned)"),
+    assigned_to_user: z
+      .array(z.string())
+      .optional()
+      .describe("Filter by assigned user IDs"),
   },
-  async ({ status, limit }) => {
+  async ({ status, limit, priorities, is_assigned, assigned_to_user }) => {
     const statusMap: Record<string, ThreadStatus> = {
       todo: ThreadStatus.Todo,
       snoozed: ThreadStatus.Snoozed,
@@ -2806,6 +2818,9 @@ server.tool(
     const result = await plain.getThreads({
       filters: {
         statuses: [threadStatus],
+        ...(priorities && { priorities }),
+        ...(is_assigned !== undefined && { isAssigned: is_assigned }),
+        ...(assigned_to_user && { assignedToUser: assigned_to_user }),
       },
       first: limit,
     });
@@ -2838,6 +2853,10 @@ server.tool(
           status: thread.status,
           priority: thread.priority,
           customer: customerName,
+          labels: thread.labels?.map((l: any) => l.labelType?.name).filter(Boolean) || [],
+          assignee: thread.assignedToUser
+            ? { id: thread.assignedToUser.id, name: thread.assignedToUser.fullName }
+            : null,
           createdAt: thread.createdAt.iso8601,
           updatedAt: thread.updatedAt.iso8601,
         };
