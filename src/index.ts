@@ -3379,18 +3379,29 @@ server.tool(
   {
     thread_id: z.string().describe("The thread ID to add the note to"),
     customer_id: z.string().describe("The customer ID associated with the thread"),
-    text: z.string().describe("The plain text content of the note"),
+    text: z
+      .string()
+      .describe(
+        "The note content. Rendered as markdown, so you can use headings, " +
+          "lists, and blockquotes. To embed a copy-paste-ready draft reply, " +
+          "format it as a blockquote (prefix every line with '> ', including " +
+          "blank lines between paragraphs) so it renders as one quoted block " +
+          "and keeps its line breaks when copied."
+      ),
     markdown: z
       .string()
       .optional()
-      .describe("Optional markdown-formatted content for rich display"),
+      .describe("Optional explicit markdown override; defaults to `text`"),
   },
   async ({ thread_id, customer_id, text, markdown }) => {
     const result = await plain.createNote({
       threadId: thread_id,
       customerId: customer_id,
       text: text,
-      markdown: markdown,
+      // Default to rendering the note as markdown so formatting (headings,
+      // blockquotes, lists) actually shows — without this, notes display as
+      // flat plain text. Matches postNote() in tella-backstage's plain api.
+      markdown: markdown ?? text,
     });
 
     if (result.error) {
@@ -3451,6 +3462,15 @@ server.tool(
     });
 
     if (result.error) {
+      // Log full error details for debugging
+      const errorDetails = {
+        message: result.error.message,
+        type: result.error.type,
+        code: (result.error as any).code,
+        requestId: (result.error as any).requestId,
+        full: JSON.stringify(result.error, null, 2),
+      };
+      console.error("createThreadLink rawRequest error:", errorDetails);
       return {
         content: [{ type: "text", text: `Error: ${result.error.message}` }],
         isError: true,
@@ -3459,8 +3479,11 @@ server.tool(
 
     const data = result.data as any;
     if (data?.createThreadLink?.error) {
+      // Log full GraphQL error details
+      const gqlError = data.createThreadLink.error;
+      console.error("createThreadLink GraphQL error:", JSON.stringify(gqlError, null, 2));
       return {
-        content: [{ type: "text", text: `Error: ${data.createThreadLink.error.message}` }],
+        content: [{ type: "text", text: `Error: ${gqlError.message} (code: ${gqlError.code}, type: ${gqlError.type})` }],
         isError: true,
       };
     }
