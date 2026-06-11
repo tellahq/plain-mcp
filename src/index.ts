@@ -3,6 +3,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { PlainClient, ThreadStatus, TodoStatusDetail, SnoozeStatusDetail } from "@team-plain/typescript-sdk";
 import { z } from "zod";
+import { mkdir, writeFile } from "fs/promises";
+import os from "os";
 
 const apiKey = process.env.PLAIN_API_KEY;
 if (!apiKey) {
@@ -2949,6 +2951,12 @@ server.tool(
                     __typename
                     chatId
                     chatText: text
+                    attachments {
+                      id
+                      fileName
+                      fileExtension
+                      fileSize { kiloBytes }
+                    }
                   }
                   ... on EmailEntry {
                     __typename
@@ -2957,6 +2965,12 @@ server.tool(
                     textContent
                     from { email name }
                     to { email name }
+                    attachments {
+                      id
+                      fileName
+                      fileExtension
+                      fileSize { kiloBytes }
+                    }
                   }
                   ... on NoteEntry {
                     __typename
@@ -3001,12 +3015,20 @@ server.tool(
           .map((entry: any) => {
             const actorName = getActorName(entry.actor);
             const content = getEntryContent(entry.entry);
+            const attachments = (entry.entry?.attachments || []).map((a: any) => ({
+              id: a.id,
+              fileName: a.fileName,
+              fileExtension: a.fileExtension,
+              sizeKb: a.fileSize?.kiloBytes,
+            }));
             return {
               id: entry.id,
               timestamp: entry.timestamp?.iso8601,
               actor: actorName,
               type: entry.entry?.__typename || "Unknown",
               content,
+              // Only include when present — use download_attachment to fetch
+              ...(attachments.length > 0 ? { attachments } : {}),
             };
           });
       }
@@ -3079,6 +3101,132 @@ function getEntryContent(entry: any): string {
       return "";
   }
 }
+
+// Tool: download_attachment
+server.tool(
+  "download_attachment",
+  "Download a thread attachment (attachment IDs appear in get_thread timeline entries) " +
+    "to a local temp file and return its path. Images (customer screenshots/recordings " +
+    "thumbnails) can then be viewed with the Read tool.",
+  {
+    attachment_id: z.string().describe("The attachment ID from a timeline entry"),
+  },
+  async ({ attachment_id }) => {
+    const mutation = `
+      mutation CreateAttachmentDownloadUrl($input: CreateAttachmentDownloadUrlInput!) {
+        createAttachmentDownloadUrl(input: $input) {
+          attachmentDownloadUrl {
+            attachment {
+              id
+              fileName
+              fileExtension
+              fileSize { kiloBytes }
+            }
+            downloadUrl
+            expiresAt { iso8601 }
+          }
+          error {
+            message
+            type
+            code
+          }
+        }
+      }
+    `;
+
+    const result = await plain.rawRequest({
+      query: mutation,
+      variables: { input: { attachmentId: attachment_id } },
+    });
+
+    if (result.error) {
+      return {
+        content: [{ type: "text", text: `Error: ${result.error.message}` }],
+        isError: true,
+      };
+    }
+
+    const payload = (result.data as any)?.createAttachmentDownloadUrl;
+    if (payload?.error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error: ${payload.error.message} (code: ${payload.error.code}, type: ${payload.error.type})`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    const info = payload?.attachmentDownloadUrl;
+    if (!info?.downloadUrl) {
+      return {
+        content: [{ type: "text", text: "Error: no download URL returned" }],
+        isError: true,
+      };
+    }
+
+    const meta = {
+      fileName: info.attachment?.fileName || attachment_id,
+      sizeKb: info.attachment?.fileSize?.kiloBytes,
+      downloadUrl: info.downloadUrl,
+      urlExpiresAt: info.expiresAt?.iso8601,
+    };
+
+    // Files over 50MB (e.g. full screen recordings): return the URL only and
+    // let the caller decide how to handle it.
+    if (meta.sizeKb && meta.sizeKb > 50_000) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              { ...meta, note: "File too large to auto-download; use downloadUrl directly" },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+
+    try {
+      const response = await fetch(info.downloadUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} ${response.statusText}`);
+      }
+      const safeName = meta.fileName.replace(/[^\w.\-]+/g, "_");
+      const dir = `${os.tmpdir()}/plain-attachments`;
+      await mkdir(dir, { recursive: true });
+      const filePath = `${dir}/${attachment_id}-${safeName}`;
+      await writeFile(filePath, Buffer.from(await response.arrayBuffer()));
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ ...meta, localPath: filePath }, null, 2),
+          },
+        ],
+      };
+    } catch (e: any) {
+      // Download failed but the (short-lived) URL is still useful
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              { ...meta, note: `Download failed (${e.message}); use downloadUrl directly` },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  }
+);
 
 // Tool: search_customers
 server.tool(
