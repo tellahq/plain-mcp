@@ -3109,48 +3109,7 @@ function getEntryContent(entry: any): string {
   }
 }
 
-// Tool: list_label_types
-server.tool(
-  "list_label_types",
-  "List the workspace's active label types — the label kinds that can be applied to threads with add_labels. Returns id (lt_…), name, icon.",
-  {},
-  async () => {
-    const result = await plain.rawRequest({
-      query: `
-        query LabelTypes($first: Int!) {
-          labelTypes(first: $first) {
-            edges {
-              node {
-                id
-                name
-                icon
-                isArchived
-              }
-            }
-          }
-        }
-      `,
-      variables: { first: 100 },
-    });
-    if (result.error) {
-      return {
-        content: [{ type: "text", text: `Error: ${result.error.message}` }],
-        isError: true,
-      };
-    }
-    const edges = (result.data as any).labelTypes?.edges || [];
-    const types = edges
-      .map((e: any) => e?.node)
-      .filter((n: any) => n?.id && !n.isArchived)
-      .map((n: any) => ({ id: n.id, name: n.name || "?", icon: n.icon || null }))
-      .sort((a: any, b: any) => a.name.localeCompare(b.name));
-    return {
-      content: [{ type: "text", text: JSON.stringify(types, null, 2) }],
-    };
-  }
-);
-
-// Tool: add_labels
+// Tool: add_labels (list_label_types lives in the LABEL TOOLS section above)
 server.tool(
   "add_labels",
   "Add labels to a thread. Takes label TYPE ids (lt_…) from list_label_types. Labels already on the thread (see get_thread) don't need re-adding.",
