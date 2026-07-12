@@ -3045,7 +3045,14 @@ server.tool(
         id: thread.assignee.id,
         name: thread.assignee.fullName,
       } : null,
-      labels: thread.labels?.map((l: any) => l.labelType.name) || [],
+      // id is the label INSTANCE (l_…, what remove_labels takes); labelTypeId
+      // is the label KIND (lt_…, what add_labels takes).
+      labels:
+        thread.labels?.map((l: any) => ({
+          id: l.id,
+          labelTypeId: l.labelType?.id,
+          name: l.labelType?.name,
+        })) || [],
       createdAt: thread.createdAt.iso8601,
       updatedAt: thread.updatedAt.iso8601,
       timeline: timelineEntries,
@@ -3101,6 +3108,106 @@ function getEntryContent(entry: any): string {
       return "";
   }
 }
+
+// Tool: list_label_types
+server.tool(
+  "list_label_types",
+  "List the workspace's active label types — the label kinds that can be applied to threads with add_labels. Returns id (lt_…), name, icon.",
+  {},
+  async () => {
+    const result = await plain.rawRequest({
+      query: `
+        query LabelTypes($first: Int!) {
+          labelTypes(first: $first) {
+            edges {
+              node {
+                id
+                name
+                icon
+                isArchived
+              }
+            }
+          }
+        }
+      `,
+      variables: { first: 100 },
+    });
+    if (result.error) {
+      return {
+        content: [{ type: "text", text: `Error: ${result.error.message}` }],
+        isError: true,
+      };
+    }
+    const edges = (result.data as any).labelTypes?.edges || [];
+    const types = edges
+      .map((e: any) => e?.node)
+      .filter((n: any) => n?.id && !n.isArchived)
+      .map((n: any) => ({ id: n.id, name: n.name || "?", icon: n.icon || null }))
+      .sort((a: any, b: any) => a.name.localeCompare(b.name));
+    return {
+      content: [{ type: "text", text: JSON.stringify(types, null, 2) }],
+    };
+  }
+);
+
+// Tool: add_labels
+server.tool(
+  "add_labels",
+  "Add labels to a thread. Takes label TYPE ids (lt_…) from list_label_types. Labels already on the thread (see get_thread) don't need re-adding.",
+  {
+    thread_id: z.string().describe("The thread ID to label"),
+    label_type_ids: z
+      .array(z.string())
+      .min(1)
+      .describe("Label TYPE ids (lt_…) from list_label_types"),
+  },
+  async ({ thread_id, label_type_ids }) => {
+    const result = await plain.addLabels({
+      threadId: thread_id,
+      labelTypeIds: label_type_ids,
+    });
+    if (result.error) {
+      return {
+        content: [{ type: "text", text: `Error: ${result.error.message}` }],
+        isError: true,
+      };
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Added ${label_type_ids.length} label(s) to ${thread_id}`,
+        },
+      ],
+    };
+  }
+);
+
+// Tool: remove_labels
+server.tool(
+  "remove_labels",
+  "Remove labels from a thread. Takes label INSTANCE ids (l_…, the `id` field of get_thread's labels) — NOT label type ids.",
+  {
+    label_ids: z
+      .array(z.string())
+      .min(1)
+      .describe("Label instance ids (l_…) from get_thread's labels array"),
+  },
+  async ({ label_ids }) => {
+    const result = await plain.removeLabels({ labelIds: label_ids });
+    if (result.error) {
+      return {
+        content: [{ type: "text", text: `Error: ${result.error.message}` }],
+        isError: true,
+      };
+    }
+    return {
+      content: [
+        { type: "text", text: `Removed ${label_ids.length} label(s)` },
+      ],
+    };
+  }
+);
 
 // Tool: download_attachment
 server.tool(

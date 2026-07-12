@@ -291,10 +291,83 @@ async function testQueueStats(): Promise<void> {
   assert(typeof snoozedCount === "number", "snoozed count should be a number");
 }
 
+// Test: link_thread_to_linear - debug permissions
+async function testLinkThreadToLinear(): Promise<void> {
+  const thread_id = "th_01KB3F64K9C8J7C2ZMTD89ZA2R";
+  const linear_issue_id = "CUS-68";
+  const linear_issue_url = "https://linear.app/tella/issue/CUS-68/virtual-backgrounds";
+
+  const mutation = `
+    mutation CreateThreadLink($input: CreateThreadLinkInput!) {
+      createThreadLink(input: $input) {
+        error {
+          message
+          type
+          code
+          fields {
+            field
+            message
+            type
+          }
+        }
+        threadLink {
+          id
+          createdAt { iso8601 }
+        }
+      }
+    }
+  `;
+
+  console.log(`  → Attempting to link thread ${thread_id} to Linear issue ${linear_issue_id}`);
+
+  const result = await plain.rawRequest({
+    query: mutation,
+    variables: {
+      input: {
+        threadId: thread_id,
+        linearIssue: {
+          linearIssueId: linear_issue_id,
+          linearIssueUrl: linear_issue_url,
+        },
+      },
+    },
+  });
+
+  if (result.error) {
+    console.log(`  → Raw request error:`);
+    console.log(`    - message: ${result.error.message}`);
+    console.log(`    - type: ${result.error.type}`);
+    console.log(`    - full error: ${JSON.stringify(result.error, null, 2)}`);
+    throw new Error(`rawRequest failed: ${result.error.message}`);
+  }
+
+  const data = result.data as any;
+  console.log(`  → Response data: ${JSON.stringify(data, null, 2)}`);
+
+  if (data?.createThreadLink?.error) {
+    const err = data.createThreadLink.error;
+    console.log(`  → GraphQL error:`);
+    console.log(`    - message: ${err.message}`);
+    console.log(`    - type: ${err.type}`);
+    console.log(`    - code: ${err.code}`);
+    if (err.fields) {
+      console.log(`    - fields: ${JSON.stringify(err.fields, null, 2)}`);
+    }
+    throw new Error(`GraphQL error: ${err.message} (code: ${err.code}, type: ${err.type})`);
+  }
+
+  if (data?.createThreadLink?.threadLink) {
+    console.log(`  → Success! Link ID: ${data.createThreadLink.threadLink.id}`);
+  }
+}
+
 // Run all tests
 async function runTests(): Promise<void> {
   console.log("\n🧪 Plain MCP Test Suite\n");
   console.log("=".repeat(50));
+
+  // Run the Linear link test first to debug
+  await test("link_thread_to_linear permissions check", testLinkThreadToLinear);
 
   await test("list_threads returns threads with customer data", testListThreads);
   await test("get_thread returns full thread details", testGetThread);
