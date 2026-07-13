@@ -1450,7 +1450,7 @@ server.tool(
 // Tool: list_label_types
 server.tool(
   "list_label_types",
-  "List all available label types",
+  "List the workspace's active label types — the label kinds that can be applied to threads with add_labels. Returns id (lt_…), name, icon.",
   {},
   async () => {
     const query = `
@@ -1475,7 +1475,11 @@ server.tool(
     }
 
     const data = result.data as any;
-    const labels = data?.labelTypes?.edges?.map((e: any) => e.node) || [];
+    // Archived label types can't be applied (Plain rejects add_labels with
+    // them), so only active ones are listed.
+    const labels = (data?.labelTypes?.edges?.map((e: any) => e.node) || [])
+      .filter((n: any) => n && !n.isArchived)
+      .map((n: any) => ({ id: n.id, name: n.name, icon: n.icon ?? null }));
 
     return { content: [{ type: "text", text: JSON.stringify(labels, null, 2) }] };
   }
